@@ -341,6 +341,30 @@ class SystemConfigApiTestCase(unittest.TestCase):
             self.assertEqual(import_ctx.exception.status_code, 401)
             self.assertEqual(import_ctx.exception.detail["error"], "env_backup_access_denied")
 
+    def test_config_env_endpoints_return_server_error_for_storage_permission_error(self) -> None:
+        current = system_config.get_system_config(include_schema=False, service=self.service).model_dump()
+
+        with patch.object(self.service, "export_env", side_effect=PermissionError("read denied")):
+            with self.assertRaises(HTTPException) as export_ctx:
+                system_config.export_system_config(service=self.service)
+
+        self.assertEqual(export_ctx.exception.status_code, 500)
+        self.assertEqual(export_ctx.exception.detail["error"], "internal_error")
+
+        with patch.object(self.service, "import_env", side_effect=PermissionError("write denied")):
+            with self.assertRaises(HTTPException) as import_ctx:
+                system_config.import_system_config(
+                    request=ImportSystemConfigRequest(
+                        config_version=current["config_version"],
+                        content="STOCK_LIST=300750\n",
+                        reload_now=False,
+                    ),
+                    service=self.service,
+                )
+
+        self.assertEqual(import_ctx.exception.status_code, 500)
+        self.assertEqual(import_ctx.exception.detail["error"], "internal_error")
+
     def test_test_llm_channel_endpoint_returns_service_payload(self) -> None:
         with patch.object(
             self.service,

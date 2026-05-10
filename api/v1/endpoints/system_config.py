@@ -188,8 +188,6 @@ def export_system_config(
     """Export the active `.env` file for config backup."""
     try:
         _allow_env_backup_access()
-        payload = service.export_env()
-        return ExportSystemConfigResponse.model_validate(payload)
     except PermissionError as exc:
         logger.warning("System config export blocked: %s", exc)
         raise HTTPException(
@@ -199,6 +197,10 @@ def export_system_config(
                 "message": "System config backup is disabled; enable admin authentication first",
             },
         )
+
+    try:
+        payload = service.export_env()
+        return ExportSystemConfigResponse.model_validate(payload)
     except Exception as exc:
         logger.error("Failed to export system configuration: %s", exc, exc_info=True)
         raise HTTPException(
@@ -242,12 +244,6 @@ def import_system_config(
     """Import a `.env` backup into the active config."""
     try:
         _allow_env_backup_access()
-        payload = service.import_env(
-            config_version=request.config_version,
-            content=request.content,
-            reload_now=request.reload_now,
-        )
-        return UpdateSystemConfigResponse.model_validate(payload)
     except PermissionError as exc:
         logger.warning("System config import blocked: %s", exc)
         raise HTTPException(
@@ -257,6 +253,14 @@ def import_system_config(
                 "message": "System config backup is disabled; enable admin authentication first",
             },
         )
+
+    try:
+        payload = service.import_env(
+            config_version=request.config_version,
+            content=request.content,
+            reload_now=request.reload_now,
+        )
+        return UpdateSystemConfigResponse.model_validate(payload)
     except ConfigImportError as exc:
         raise HTTPException(
             status_code=400,
