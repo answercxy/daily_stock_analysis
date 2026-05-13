@@ -8,7 +8,7 @@ import LoginPage from './pages/LoginPage';
 import NotFoundPage from './pages/NotFoundPage';
 import ChatPage from './pages/ChatPage';
 import PortfolioPage from './pages/PortfolioPage';
-import { ApiErrorAlert, Shell } from './components/common';
+import { ApiErrorAlert, PageErrorBoundary, Shell } from './components/common';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useAgentChatStore } from './stores/agentChatStore';
 import './App.css';
@@ -65,7 +65,18 @@ const AppContent: React.FC = () => {
         <Route path="/chat" element={<ChatPage />} />
         <Route path="/portfolio" element={<PortfolioPage />} />
         <Route path="/backtest" element={<BacktestPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
+        <Route
+          path="/settings"
+          element={(
+            <PageErrorBoundary
+              title="系统设置"
+              description="设置页运行时发生异常。桌面端会保留主界面，不再直接黑屏。"
+              supportHint="Windows 免安装包如果反复出现此提示，请附上 logs/desktop.log 和触发的设置分类。"
+            >
+              <SettingsPage />
+            </PageErrorBoundary>
+          )}
+        />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
       <Route path="/login" element={<LoginPage />} />
