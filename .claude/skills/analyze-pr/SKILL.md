@@ -31,12 +31,12 @@ gh run view <run_id> --log-failed
 
 ### Step 2: 检查标题与描述完整性
 
-先检查 PR title 是否符合 `AGENTS.md` 建议：
+先检查 PR title 是否符合 `AGENTS.md` 的非阻断建议：
 
 - 格式应为 `<类型>: <修改内容>`，例如 `fix: 修复大盘分析历史记录丢失`
 - 类型优先为 `fix`/`feat`/`refactor`/`docs`/`chore`/`test`/`ci`
 - 不应包含 `[codex]`、`codex`、`autocode`、`copilot` 或其他工具/agent 来源前缀
-- 标题应描述实际变更；若标题与 diff 不符，在描述完整性中指出，但不单独作为 process blocker
+- 标题应描述实际变更；若标题与 diff 不符，在描述完整性中指出，但不应单独作为 review process blocker。
 
 对照 `.github/PULL_REQUEST_TEMPLATE.md`，确认是否覆盖：
 
