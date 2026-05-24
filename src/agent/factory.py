@@ -59,7 +59,7 @@ class SkillPromptState:
     technical_skill_policy: str
 
 
-def _coerce_config_int(raw_value: object, default: int) -> int:
+def _coerce_config_int(raw_value: object, default: int, *, field_name: str | None = None) -> int:
     """Coerce optional numeric config values to int with a fallback default.
 
     This protects test doubles and incomplete config objects from propagating
@@ -72,6 +72,13 @@ def _coerce_config_int(raw_value: object, default: int) -> int:
     try:
         return int(raw_value)
     except (TypeError, ValueError, OverflowError):
+        if field_name:
+            logger.warning(
+                "[AgentFactory] Invalid value for %s: %r, fallback to default %s",
+                field_name,
+                raw_value,
+                default,
+            )
         return default
 
 
@@ -348,10 +355,12 @@ def build_agent_executor(config=None, skills: Optional[List[str]] = None):
         max_steps=_coerce_config_int(
             getattr(config, "agent_max_steps", AGENT_MAX_STEPS_DEFAULT),
             AGENT_MAX_STEPS_DEFAULT,
+            field_name="agent_max_steps",
         ),
         timeout_seconds=_coerce_config_int(
             getattr(config, "agent_orchestrator_timeout_s", 0),
             0,
+            field_name="agent_orchestrator_timeout_s",
         ),
     )
 
@@ -375,6 +384,7 @@ def _build_orchestrator(config, registry, llm_adapter, skill_manager, *, technic
         max_steps=_coerce_config_int(
             getattr(config, "agent_max_steps", AGENT_MAX_STEPS_DEFAULT),
             AGENT_MAX_STEPS_DEFAULT,
+            field_name="agent_max_steps",
         ),
         mode=mode,
         skill_manager=skill_manager,
