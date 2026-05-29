@@ -648,6 +648,20 @@ class LLMChannelConfigTestCase(unittest.TestCase):
             with self.subTest(value=repr(value)):
                 self.assertFalse(SystemConfigService._is_valid_llm_base_url(value))
 
+    def test_llm_base_url_rejects_legacy_numeric_ipv4_aliases(self) -> None:
+        invalid_urls = [
+            "http://2852039166/v1",
+            "http://0xa9fea9fe/v1",
+            "http://025177524776/v1",
+            "http://0251.0376.0251.0376/v1",
+            "http://169.254.0xa9fe/v1",
+        ]
+
+        for value in invalid_urls:
+            with self.subTest(value=value):
+                self.assertFalse(SystemConfigService._is_valid_llm_base_url(value))
+                self.assertFalse(SystemConfigService._is_safe_base_url(value))
+
     def test_llm_base_url_accepts_common_openai_compatible_and_local_shapes(self) -> None:
         valid_urls = [
             "https://api.openai.com/v1",
@@ -671,6 +685,22 @@ class LLMChannelConfigTestCase(unittest.TestCase):
             name="primary",
             protocol="openai",
             base_url="https://127.0.0.1:6666\\@1.1.1.1/",
+            api_key="sk-test-value",
+        )
+
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error_code"], "invalid_config")
+        self.assertEqual(payload["details"]["reason"], "invalid_url")
+        mock_get.assert_not_called()
+
+    @patch("src.services.system_config_service.requests.get")
+    def test_discover_llm_channel_models_blocks_numeric_metadata_alias(self, mock_get) -> None:
+        service = SystemConfigService(manager=Mock())
+
+        payload = service.discover_llm_channel_models(
+            name="primary",
+            protocol="openai",
+            base_url="http://2852039166/v1",
             api_key="sk-test-value",
         )
 

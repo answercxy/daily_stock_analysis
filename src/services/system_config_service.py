@@ -1916,6 +1916,64 @@ class SystemConfigService:
         return parsed.scheme in allowed_schemes and bool(parsed.netloc)
 
     @staticmethod
+    def _canonical_ipv4_numeric_host(host: str) -> Optional[str]:
+        """Return canonical IPv4 for libc-style numeric host aliases."""
+        import ipaddress
+
+        candidate = (host or "").lower()
+        if not candidate or ":" in candidate:
+            return None
+
+        try:
+            return str(ipaddress.IPv4Address(candidate))
+        except ValueError:
+            pass
+
+        parts = candidate.split(".")
+        if len(parts) > 4 or any(not part for part in parts):
+            return None
+
+        values: List[int] = []
+        for part in parts:
+            base = 10
+            digits = part
+            allowed_digits = "0123456789"
+            if part.startswith("0x"):
+                base = 16
+                digits = part[2:]
+                allowed_digits = "0123456789abcdef"
+            elif len(part) > 1 and part.startswith("0"):
+                base = 8
+                digits = part[1:]
+                allowed_digits = "01234567"
+
+            if not digits or any(char not in allowed_digits for char in digits):
+                return None
+            values.append(int(digits, base))
+
+        if len(values) == 1:
+            packed = values[0]
+            if packed > 0xFFFFFFFF:
+                return None
+        else:
+            if any(value > 0xFF for value in values[:-1]):
+                return None
+            last_max = (1 << (8 * (5 - len(values)))) - 1
+            if values[-1] > last_max:
+                return None
+            packed = 0
+            for value in values[:-1]:
+                packed = (packed << 8) | value
+            packed = (packed << (8 * (5 - len(values)))) | values[-1]
+
+        return str(ipaddress.IPv4Address(packed))
+
+    @staticmethod
+    def _is_noncanonical_ipv4_numeric_host(host: str) -> bool:
+        canonical = SystemConfigService._canonical_ipv4_numeric_host(host)
+        return canonical is not None and host.lower() != canonical
+
+    @staticmethod
     def _is_valid_llm_base_url(value: str, allowed_schemes: Tuple[str, ...] = ("http", "https")) -> bool:
         """Return True when an LLM base URL is safe to parse consistently."""
         if not value:
@@ -1933,6 +1991,8 @@ class SystemConfigService:
         if parsed.scheme not in allowed_schemes or not parsed.netloc or not host:
             return False
         if "@" in parsed.netloc or parsed.username is not None or parsed.password is not None:
+            return False
+        if SystemConfigService._is_noncanonical_ipv4_numeric_host(host):
             return False
 
         return True
@@ -2751,6 +2811,8 @@ class SystemConfigService:
             "100.100.100.200",
         })
         if host in _BLOCKED_HOSTS:
+            return False
+        if SystemConfigService._is_noncanonical_ipv4_numeric_host(host):
             return False
         # Numeric IPs: block link-local range (169.254.0.0/16)
         try:
