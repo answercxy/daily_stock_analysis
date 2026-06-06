@@ -1203,10 +1203,16 @@ This change already includes bilingual smoke-capture evidence for login/home/set
 - `cd apps/dsa-web && npm ci --ignore-scripts`
 - `cd apps/dsa-web && npm run lint`
 - `cd apps/dsa-web && npm run build`
-- `cd apps/dsa-web && npm run test -- --run`
+- `cd apps/dsa-web && npm run test -- src/App.test.tsx src/contexts/__tests__/UiLanguageContext.test.tsx src/hooks/__tests__/useSystemConfig.test.tsx`
 - `cd apps/dsa-web && npm run test:smoke`
 
-Note: `npm run test:smoke` cannot complete in this execution environment because the Playwright `config.webServer` bootstrap times out (120000ms) and local socket binding is restricted; this is an environment limitation rather than a UI regression signal. Full visual evidence should be collected in an environment where `python main.py --serve-only` or `apps/dsa-web` dev service is reachable, then capture `/login`, `/`, and `/settings` in both locales and record the timestamp/browser context.
+Note: The first four commands pass locally. `npm run test:smoke` cannot complete in this execution environment because Chromium is not available for Playwright in this sandbox (`read-only filesystem`, `getaddrinfo EAI_AGAIN` blocked browser download) and frontend socket binding is restricted. Please run the following commands in a reachable environment and attach the resulting screenshots to PR review:
+
+- `python main.py --webui-only --host 127.0.0.1 --port 8000`
+- `cd apps/dsa-web && npm run dev -- --host 127.0.0.1 --port 4173`
+- `cd apps/dsa-web && npm run test:smoke`
+
+Reference captures: `smoke-login-page-zh`, `smoke-home-page-zh`, `smoke-home-page-en`, `smoke-settings-page-zh`, `smoke-settings-page-en`, `smoke-mobile-shell-nav`.
 
 Compatibility clarification (Issue #777):
 

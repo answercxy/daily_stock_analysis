@@ -1372,10 +1372,16 @@ FastAPI 提供 RESTful API 服务，支持配置管理和触发分析。
 - `cd apps/dsa-web && npm ci --ignore-scripts`
 - `cd apps/dsa-web && npm run lint`
 - `cd apps/dsa-web && npm run build`
-- `cd apps/dsa-web && npm run test -- --run`
+- `cd apps/dsa-web && npm run test -- src/App.test.tsx src/contexts/__tests__/UiLanguageContext.test.tsx src/hooks/__tests__/useSystemConfig.test.tsx`
 - `cd apps/dsa-web && npm run test:smoke`
 
-说明：Playwright 冒烟测试命令在当前受限环境下未能完整通过 `config.webServer`，`npm run test:smoke` 出现 120000ms 超时；该告警可归因为执行环境对本地端口监听受限，属于验证环境差异，不作为 UI 回归失败。可在可达环境补充 `python main.py --serve-only` 或 `apps/dsa-web` 前端开发服务启动后，对 `/login`、`/`、`/settings` 进行人工截图，并注明复核时间与浏览器环境。  
+说明：命令中前四项通过；`npm run test:smoke` 当前环境无法完成（`Playwright` 未找到 Chromium 可执行文件，`read-only filesystem` 与 DNS 限制导致浏览器下载失败，同时前端 `vite` 监听端口也受限）。请在可达环境中使用以下命令补充验证并附带截图：
+
+- `python main.py --webui-only --host 127.0.0.1 --port 8000`
+- `cd apps/dsa-web && npm run dev -- --host 127.0.0.1 --port 4173`
+- `cd apps/dsa-web && npm run test:smoke`
+
+截图参考名：`smoke-login-page-zh`、`smoke-home-page-zh`、`smoke-home-page-en`、`smoke-settings-page-zh`、`smoke-settings-page-en`、`smoke-mobile-shell-nav`。
 
 兼容性澄清（Issue #777）：
 
