@@ -226,7 +226,9 @@ def _normalize_alphasift_hotspot_cache_payload(raw: Any) -> Optional[Dict[str, A
         return None
     payload = raw.get("payload")
     if isinstance(payload, dict):
-        return payload
+        normalized_payload = dict(payload)
+        normalized_payload.pop("details", None)
+        return normalized_payload
     hotspots = raw.get("hotspots")
     if not isinstance(hotspots, list):
         return None
@@ -602,6 +604,7 @@ def _write_alphasift_hotspot_cache(payload: Dict[str, Any]) -> None:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cached_at = _utc_now_iso()
         cache_payload = dict(payload)
+        cache_payload.pop("details", None)
         cache_payload["cache_used"] = False
         cache_payload["cached_at"] = cached_at
         cache_path.write_text(

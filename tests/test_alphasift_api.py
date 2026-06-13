@@ -473,6 +473,9 @@ class AlphaSiftOpportunitiesApiTestCase(unittest.TestCase):
                             {"topic": "机器人执行器", "heat_score": 80.0},
                         ],
                         "hotspot_count": 2,
+                        "details": {
+                            "玻璃基板": {"summary": "stale embedded detail"},
+                        },
                     },
                 }),
                 encoding="utf-8",
@@ -489,6 +492,7 @@ class AlphaSiftOpportunitiesApiTestCase(unittest.TestCase):
         self.assertEqual(payload["cached_at"], "2026-06-07T12:00:00Z")
         self.assertEqual(payload["hotspot_count"], 1)
         self.assertEqual(payload["hotspots"][0]["topic"], "玻璃基板")
+        self.assertNotIn("details", payload)
         discover.assert_not_called()
 
     def test_hotspots_refresh_falls_back_to_cache_when_provider_returns_only_errors(self) -> None:
@@ -682,7 +686,8 @@ class AlphaSiftOpportunitiesApiTestCase(unittest.TestCase):
 
         self.assertEqual(set(payload["details"].keys()), {"Moly", "Copper"})
         self.assertEqual(payload["details"]["Moly"]["route"][0]["title"], "Moly event")
-        self.assertEqual(cache_payload["payload"]["details"]["Copper"]["summary"], "Copper summary")
+        self.assertNotIn("details", cache_payload)
+        self.assertNotIn("details", cache_payload["payload"])
         self.assertEqual(detail_mock.call_count, 2)
 
     def test_hotspot_news_local_summary_extracts_event_instead_of_truncating(self) -> None:
