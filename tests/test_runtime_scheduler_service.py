@@ -237,6 +237,9 @@ class RuntimeSchedulerServiceTestCase(unittest.TestCase):
             os.environ,
             {CLI_SCHEDULER_OWNER_ENV: "true"},
             clear=False,
+        ), patch(
+            "src.config.get_config",
+            return_value=SimpleNamespace(schedule_run_immediately=True),
         ), patch("api.app.RuntimeSchedulerService", FakeRuntimeSchedulerService), patch(
             "api.app.SystemConfigService",
             FakeSystemConfigService,

@@ -202,7 +202,9 @@ async def app_lifespan(app: FastAPI):
         "on",
     }
     runtime_run_immediately_override = os.getenv(RUNTIME_SCHEDULER_RUN_IMMEDIATELY_ENV)
-    if runtime_run_immediately_override is None:
+    if not runtime_owns_schedule:
+        runtime_run_immediately = False
+    elif runtime_run_immediately_override is None:
         from src.config import get_config
 
         runtime_run_immediately = bool(getattr(get_config(), "schedule_run_immediately", False))
