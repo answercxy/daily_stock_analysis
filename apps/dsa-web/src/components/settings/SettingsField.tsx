@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type React from 'react';
-import { Badge, Button, Select, Input } from '../common';
+import { Badge, Button, Checkbox, Input, Select } from '../common';
 import type { ConfigValidationIssue, SystemConfigFieldSchema, SystemConfigItem } from '../../types/systemConfig';
 import { useUiLanguage } from '../../contexts/UiLanguageContext';
 import { getSettingsHelpContent } from '../../locales/settingsHelp';
@@ -34,6 +34,19 @@ function parseMultiValues(value: string): string[] {
 
   const values = value.split(',').map((entry) => entry.trim());
   return values.length ? values : [''];
+}
+
+function parseMultiSelectValues(value: string): string[] {
+  if (!value) {
+    return [];
+  }
+
+  const values = value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry);
+
+  return values.length ? Array.from(new Set(values)) : [];
 }
 
 function serializeMultiValues(values: string[]): string {
@@ -97,6 +110,44 @@ function renderFieldControl(
   }
 
   if (controlType === 'select' && schema?.options?.length) {
+    if (isMultiValue) {
+      const normalizedOptions = normalizeSelectOptions(
+        item.key,
+        schema.options,
+        language,
+      );
+      const selectedValues = new Set(parseMultiSelectValues(value));
+      const selectableValues = normalizedOptions
+        .map((option) => option.value)
+        .filter((optionValue) => optionValue);
+
+      return (
+        <div className="space-y-2">
+          {normalizedOptions.map((option) => (
+            <Checkbox
+              key={`${item.key}-${option.value}`}
+              label={option.label}
+              id={`${controlId}-${option.value}`}
+              checked={selectedValues.has(option.value)}
+              disabled={disabled || !schema?.isEditable}
+              onChange={(event) => {
+                const nextValues = new Set(selectedValues);
+                if (event.target.checked) {
+                  nextValues.add(option.value);
+                } else {
+                  nextValues.delete(option.value);
+                }
+                const serializedValues = selectableValues
+                  .filter((optionValue) => nextValues.has(optionValue))
+                  .join(',');
+                onChange(serializedValues);
+              }}
+            />
+          ))}
+        </div>
+      );
+    }
+
     return (
         <Select
           id={controlId}

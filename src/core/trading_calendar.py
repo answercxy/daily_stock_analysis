@@ -543,21 +543,35 @@ def compute_effective_region(
     Compute effective market review region given config and open markets.
 
     Args:
-        config_region: From MARKET_REVIEW_REGION ('cn' | 'hk' | 'us' | 'jp' | 'kr' | 'both')
+        config_region: From MARKET_REVIEW_REGION ('cn' | 'hk' | 'us' | 'jp' | 'kr' | 'both' | comma-separated variants)
         open_markets: Markets open today
 
     Returns:
         None: caller uses config default (check disabled)
         '': all relevant markets closed, skip market review
-        'cn' | 'hk' | 'us' | 'jp' | 'kr' | 'both': effective subset for today
+        'cn' | 'hk' | 'us' | 'jp' | 'kr' | comma-separated variants: effective subset for today
     """
     markets = ("cn", "hk", "us", "jp", "kr")
-    if config_region not in (*markets, "both"):
-        config_region = "cn"
-    if config_region in markets:
-        return config_region if config_region in open_markets else ""
-    # both: return only the markets that are actually open today
-    parts = [m for m in markets if m in open_markets]
+    supported_markets = set(markets)
+    raw_regions = [item.strip().lower() for item in str(config_region or "cn").split(",")]
+    explicit_regions = [item for item in raw_regions if item]
+    if not explicit_regions:
+        explicit_regions = ["cn"]
+    if "both" in explicit_regions:
+        requested_markets = set(markets)
+    else:
+        requested_markets = {item for item in explicit_regions if item in supported_markets}
+        if not requested_markets:
+            requested_markets = {"cn"}
+
+    # If config is comma-separated / both, keep canonical order for deterministic
+    # override-region values.
+    requested_ordered = [m for m in markets if m in requested_markets]
+    if not requested_ordered:
+        return ""
+
+    # Return only the requested markets that are open today.
+    parts = [m for m in requested_ordered if m in open_markets]
     if not parts:
         return ""
     if len(parts) == 1:

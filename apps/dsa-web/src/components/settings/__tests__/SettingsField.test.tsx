@@ -117,6 +117,48 @@ describe('SettingsField', () => {
     expect(screen.getAllByRole('button', { name: '删除' })).toHaveLength(2);
   });
 
+  it('renders multi-value select field as checkbox group and serializes updates', () => {
+    const onChange = vi.fn();
+
+    const { rerender } = render(
+      <SettingsField
+        item={{
+          key: 'MARKET_REVIEW_REGION',
+          value: 'cn,jp',
+          rawValueExists: true,
+          isMasked: false,
+          schema: {
+            key: 'MARKET_REVIEW_REGION',
+            title: 'Market Review Region',
+            category: 'system',
+            dataType: 'string',
+            uiControl: 'select',
+            isSensitive: false,
+            isRequired: false,
+            isEditable: true,
+            options: ['cn', 'hk', 'us', 'jp', 'kr', 'both'],
+            validation: { multiValue: true },
+            displayOrder: 1,
+          },
+        }}
+        value="cn,jp"
+        onChange={onChange}
+      />
+    );
+
+    const cnOption = screen.getByRole('checkbox', { name: 'A 股' });
+    const hkOption = screen.getByRole('checkbox', { name: '港股' });
+    const jpOption = screen.getByRole('checkbox', { name: '日股' });
+
+    expect(cnOption).toBeChecked();
+    expect(jpOption).toBeChecked();
+    expect(hkOption).not.toBeChecked();
+
+    fireEvent.click(hkOption);
+    expect(onChange).toHaveBeenLastCalledWith('MARKET_REVIEW_REGION', 'cn,hk,jp');
+
+  });
+
   it('allows optional select fields to be cleared when schema provides an empty option', () => {
     const onChange = vi.fn();
 
