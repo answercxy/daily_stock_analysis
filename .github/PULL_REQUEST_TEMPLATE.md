@@ -54,6 +54,8 @@ git diff --name-only "$BASE_REF"..HEAD
 python -m pytest -m "not network"
 ```
 
+> `Full-suite note` 必须与当次 PR 的 CI 结果保持一致；若本地复现存在环境相关失败，请明确标注为“本地环境差异”并给出 GitHub CI 通过/失败结论与链接。
+
 关键输出/结论 / Key output & conclusion:
 
 ## Visual Evidence (if applicable)
