@@ -1,95 +1,115 @@
 # feishu_doc.py
 # -*- coding: utf-8 -*-
+"""
+飞书云文档管理器 — 使用 requests 直接调用飞书 Open API
+替代 lark_oapi SDK（该 SDK 过于臃肿且有循环导入 bug）
+"""
 import logging
-import json
-import lark_oapi as lark
-from lark_oapi.api.docx.v1 import *
-from typing import List, Dict, Any, Optional
+import time
+from typing import Optional
+
+import requests
+
 from src.config import get_config
 
 logger = logging.getLogger(__name__)
 
+FEISHU_BASE = "https://open.feishu.cn/open-apis"
+
 
 class FeishuDocManager:
-    """飞书云文档管理器 (基于官方 SDK lark-oapi)"""
+    """飞书云文档管理器 (基于 requests 直接调用 API)"""
 
     def __init__(self):
         self.config = get_config()
         self.app_id = self.config.feishu_app_id
         self.app_secret = self.config.feishu_app_secret
         self.folder_token = self.config.feishu_folder_token
-
-        # 初始化 SDK 客户端
-        # SDK 会自动处理 tenant_access_token 的获取和刷新，无需人工干预
-        if self.is_configured():
-            self.client = lark.Client.builder() \
-                .app_id(self.app_id) \
-                .app_secret(self.app_secret) \
-                .log_level(lark.LogLevel.INFO) \
-                .build()
-        else:
-            self.client = None
+        self._token = None
+        self._token_expires_at = 0
 
     def is_configured(self) -> bool:
         """检查配置是否完整"""
         return bool(self.app_id and self.app_secret and self.folder_token)
 
+    def _get_token(self) -> Optional[str]:
+        """获取 tenant_access_token（带缓存）"""
+        now = time.time()
+        if self._token and now < self._token_expires_at - 60:
+            return self._token
+
+        try:
+            resp = requests.post(
+                f"{FEISHU_BASE}/auth/v3/tenant_access_token/internal",
+                json={"app_id": self.app_id, "app_secret": self.app_secret},
+                timeout=10,
+            )
+            data = resp.json()
+            if data.get("code") != 0:
+                logger.error(f"获取飞书 token 失败: {data.get('msg', resp.text)}")
+                return None
+            self._token = data["tenant_access_token"]
+            self._token_expires_at = now + data.get("expire", 7200)
+            return self._token
+        except Exception as e:
+            logger.error(f"获取飞书 token 异常: {e}")
+            return None
+
+    def _headers(self) -> dict:
+        token = self._get_token()
+        return {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+
     def create_daily_doc(self, title: str, content_md: str) -> Optional[str]:
-        """
-        创建日报文档
-        """
-        if not self.client or not self.is_configured():
-            logger.warning("飞书 SDK 未初始化或配置缺失，跳过创建")
+        """创建日报文档并写入内容"""
+        if not self.is_configured():
+            logger.warning("飞书文档配置缺失，跳过创建")
+            return None
+
+        token = self._get_token()
+        if not token:
             return None
 
         try:
             # 1. 创建文档
-            # 使用官方 SDK 的 Builder 模式构造请求
-            create_request = CreateDocumentRequest.builder() \
-                .request_body(CreateDocumentRequestBody.builder()
-                              .folder_token(self.folder_token)
-                              .title(title)
-                              .build()) \
-                .build()
-
-            response = self.client.docx.v1.document.create(create_request)
-
-            if not response.success():
-                logger.error(f"创建文档失败: {response.code} - {response.msg} - {response.error}")
+            create_resp = requests.post(
+                f"{FEISHU_BASE}/docx/v1/documents",
+                headers=self._headers(),
+                json={"folder_token": self.folder_token, "title": title},
+                timeout=15,
+            )
+            create_data = create_resp.json()
+            if create_data.get("code") != 0:
+                logger.error(
+                    f"创建飞书文档失败: {create_data.get('msg', create_resp.text)}"
+                )
                 return None
 
-            doc_id = response.data.document.document_id
-            # 这里的 domain 只是为了生成链接，实际访问会重定向
+            doc_id = create_data["data"]["document"]["document_id"]
             doc_url = f"https://feishu.cn/docx/{doc_id}"
             logger.info(f"飞书文档创建成功: {title} (ID: {doc_id})")
 
-            # 2. 解析 Markdown 并写入内容
-            # 将 Markdown 转换为 SDK 需要的 Block 对象列表
-            blocks = self._markdown_to_sdk_blocks(content_md)
-
-            # 飞书 API 限制每次写入 Block 数量（建议 50 个左右），分批写入
+            # 2. 将 Markdown 转换为 Block 并分批写入
+            blocks = self._markdown_to_blocks(content_md)
             batch_size = 50
-            doc_block_id = doc_id  # 文档本身也是一个 block
 
             for i in range(0, len(blocks), batch_size):
-                batch_blocks = blocks[i:i + batch_size]
+                batch = blocks[i : i + batch_size]
+                add_resp = requests.post(
+                    f"{FEISHU_BASE}/docx/v1/documents/{doc_id}/blocks/{doc_id}/children",
+                    headers=self._headers(),
+                    json={"children": batch, "index": -1},
+                    timeout=15,
+                )
+                add_data = add_resp.json()
+                if add_data.get("code") != 0:
+                    logger.error(
+                        f"写入文档内容失败(批次{i}): {add_data.get('msg', add_resp.text)}"
+                    )
 
-                # 构造批量添加块的请求
-                batch_add_request = CreateDocumentBlockChildrenRequest.builder() \
-                    .document_id(doc_id) \
-                    .block_id(doc_block_id) \
-                    .request_body(CreateDocumentBlockChildrenRequestBody.builder()
-                                  .children(batch_blocks)  # SDK 需要 Block 对象列表
-                                  .index(-1)  # 追加到末尾
-                                  .build()) \
-                    .build()
-
-                write_resp = self.client.docx.v1.document_block_children.create(batch_add_request)
-
-                if not write_resp.success():
-                    logger.error(f"写入文档内容失败(批次{i}): {write_resp.code} - {write_resp.msg}")
-
-            logger.info(f"文档内容写入完成")
+            logger.info("文档内容写入完成")
             return doc_url
 
         except Exception as e:
@@ -98,68 +118,75 @@ class FeishuDocManager:
             logger.error(traceback.format_exc())
             return None
 
-    def _markdown_to_sdk_blocks(self, md_text: str) -> List[Block]:
-        """
-        将简单的 Markdown 转换为飞书 SDK 的 Block 对象
-        """
+    def _markdown_to_blocks(self, md_text: str) -> list:
+        """将 Markdown 文本转换为飞书 Block 列表"""
         blocks = []
-        lines = md_text.split('\n')
 
-        for line in lines:
-            line = line.strip()
-            if not line:
+        # Block type 常量
+        TEXT = 2
+        H1 = 3
+        H2 = 4
+        H3 = 5
+        H4 = 6
+        DIVIDER = 22
+
+        for line in md_text.split("\n"):
+            stripped = line.strip()
+            if not stripped:
                 continue
 
-            # 默认普通文本 (Text = 2)
-            block_type = 2
-            text_content = line
+            block_type = TEXT
+            text_content = stripped
 
-            # 识别标题
-            if line.startswith('# '):
-                block_type = 3  # H1
-                text_content = line[2:]
-            elif line.startswith('## '):
-                block_type = 4  # H2
-                text_content = line[3:]
-            elif line.startswith('### '):
-                block_type = 5  # H3
-                text_content = line[4:]
-            elif line.startswith('---'):
-                # 分割线
-                blocks.append(Block.builder()
-                              .block_type(22)
-                              .divider(Divider.builder().build())
-                              .build())
+            if stripped.startswith("# "):
+                block_type = H1
+                text_content = stripped[2:]
+            elif stripped.startswith("## "):
+                block_type = H2
+                text_content = stripped[3:]
+            elif stripped.startswith("### "):
+                block_type = H3
+                text_content = stripped[4:]
+            elif stripped.startswith("#### "):
+                block_type = H4
+                text_content = stripped[5:]
+            elif stripped == "---":
+                blocks.append(
+                    {
+                        "block_type": DIVIDER,
+                        "divider": {},
+                    }
+                )
                 continue
 
-            # 构造 Text 类型的 Block
-            # SDK 的结构嵌套比较深: Block -> Text -> elements -> TextElement -> TextRun -> content
-            text_run = TextRun.builder() \
-                .content(text_content) \
-                .text_element_style(TextElementStyle.builder().build()) \
-                .build()
+            # 构造 text block
+            block = {
+                "block_type": block_type,
+            }
 
-            text_element = TextElement.builder() \
-                .text_run(text_run) \
-                .build()
+            text_obj = {
+                "elements": [
+                    {
+                        "text_run": {
+                            "content": text_content,
+                            "text_element_style": {},
+                        }
+                    }
+                ],
+                "style": {},
+            }
 
-            text_obj = Text.builder() \
-                .elements([text_element]) \
-                .style(TextStyle.builder().build()) \
-                .build()
+            if block_type == TEXT:
+                block["text"] = text_obj
+            elif block_type == H1:
+                block["heading1"] = text_obj
+            elif block_type == H2:
+                block["heading2"] = text_obj
+            elif block_type == H3:
+                block["heading3"] = text_obj
+            elif block_type == H4:
+                block["heading4"] = text_obj
 
-            # 根据 block_type 放入正确的属性容器
-            block_builder = Block.builder().block_type(block_type)
-
-            if block_type == 2:
-                block_builder.text(text_obj)
-            elif block_type == 3:
-                block_builder.heading1(text_obj)
-            elif block_type == 4:
-                block_builder.heading2(text_obj)
-            elif block_type == 5:
-                block_builder.heading3(text_obj)
-
-            blocks.append(block_builder.build())
+            blocks.append(block)
 
         return blocks
