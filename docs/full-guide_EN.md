@@ -143,7 +143,7 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 
 | Secret Name | Description | Required |
 |------------|------|:----:|
-| `STOCK_LIST` | Watchlist codes, e.g., `600519,300750,002594,7203.T,005930.KS` | ✅ |
+| `STOCK_LIST` | Watchlist codes, e.g., `600519,300750,002594,7203.T,005930.KS`; English commas are recommended, while pasted Chinese commas, enumeration commas, semicolons, spaces, and newlines are recognized and normalized to English commas | ✅ |
 | `ANSPIRE_API_KEYS` | [Anspire AI Search](https://aisearch.anspire.cn/) optimized for Chinese content; the same key can also be used for Anspire LLM fallback scenarios (example model: `Doubao-Seed-2.0-lite`) | Recommended |
 | `SERPAPI_API_KEYS` | [SerpAPI](https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis) search-engine results for realtime financial news | Recommended |
 | `TAVILY_API_KEYS` | [Tavily](https://tavily.com/) Search API (for news search) | Optional |
@@ -154,6 +154,8 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 | `SEARXNG_PUBLIC_INSTANCES_ENABLED` | Auto-discover public SearXNG instances from `searx.space` when `SEARXNG_BASE_URLS` is empty (default `true`) | Optional |
 | `TUSHARE_TOKEN` | [Tushare Pro](https://tushare.pro/weborder/#/login?reg=834638) Token | Optional |
 | `TICKFLOW_API_KEY` | [TickFlow](https://tickflow.org) API key for optional A-share daily K-lines, realtime quotes, stock list/name lookup, and CN market review enhancement; permission or entitlement failures fall back to existing providers | Optional |
+
+> **GitHub Actions:** The bundled `00-daily-analysis.yml` maps `TUSHARE_TOKEN`, `TICKFLOW_API_KEY` / `TICKFLOW_*`, and the documented `LONGBRIDGE_*` variables into the job environment. Store `TICKFLOW_API_KEY` in **Secrets**; non-sensitive TickFlow priority, adjustment, and batch switches can live in **Variables** or **Secrets**. Longbridge OAuth still requires a client id plus `LONGBRIDGE_OAUTH_TOKEN_CACHE_B64` for headless Actions runs, while the legacy `LONGBRIDGE_APP_KEY` / `LONGBRIDGE_APP_SECRET` / `LONGBRIDGE_ACCESS_TOKEN` triplet remains supported.
 
 #### ✅ Minimum Configuration Example
 
@@ -289,6 +291,7 @@ For the notification baseline, diagnostics, and deployment notes, see [Notificat
 | `FEISHU_APP_ID` | Feishu App ID | Optional |
 | `FEISHU_APP_SECRET` | Feishu App Secret | Optional |
 | `FEISHU_FOLDER_TOKEN` | Feishu Cloud Drive Folder Token | Optional |
+| `FEISHU_SEND_AS_FILE` | Send reports as files via Feishu App Bot (default `false`) | Optional |
 
 > Feishu Cloud Document setup steps:
 > 1. Create an app in [Feishu Developer Console](https://open.feishu.cn/app)
@@ -1495,7 +1498,7 @@ A: WeChat Work/Feishu have message length limits, system already auto-segments m
 A: AkShare uses scraping mechanism, may be temporarily rate-limited. System has retry mechanism configured, usually just wait a few minutes and retry.
 
 ### Q: How to add watchlist stocks?
-A: Modify `STOCK_LIST` environment variable, separate multiple codes with commas.
+A: Modify the `STOCK_LIST` environment variable. English commas are recommended between codes. Chinese commas, enumeration commas, semicolons, spaces, and newlines are also recognized and are normalized to English commas after saving in Web settings or using watchlist add/remove actions.
 
 ### Q: GitHub Actions not executing?
 A: Check if Actions is enabled, and if cron expression is correct (note it's UTC time).
@@ -1516,7 +1519,7 @@ A: Check if Actions is enabled, and if cron expression is correct (note it's UTC
 - The button calls the existing `POST /api/v1/portfolio/fx/refresh` endpoint and reloads snapshot/risk data only.
 - If upstream FX fetch fails, the page may still remain stale after refresh and will explain the fallback result inline.
 - When `PORTFOLIO_FX_UPDATE_ENABLED=false`, the refresh API returns an explicit disabled status and the page shows that online FX refresh is disabled instead of implying that no refreshable pairs exist.
-- Portfolio snapshot `positions[]` includes price metadata such as `price_source`, `price_date`, `price_stale`, and `price_available`. Today's snapshot tries realtime quotes first, then falls back to the latest historical close on or before `as_of` when the realtime quote is unavailable or non-positive. Historical `as_of` snapshots stay on historical-close semantics and no longer silently treat cost basis as the current price. Missing-price positions are marked with `price_available=false` and excluded from market value / unrealized PnL totals.
+- Portfolio snapshot `positions[]` includes price metadata such as `price_source`, `price_date`, `price_stale`, and `price_available`. Today's snapshot tries realtime quotes by default, then falls back to the latest historical close on or before `as_of` when the realtime quote is unavailable or non-positive. Passing `include_realtime=false` skips realtime quotes and uses the local historical-close fallback path directly; the Web portfolio page uses this mode to render holdings before slow external realtime quote sources can block the first screen. Historical `as_of` snapshots stay on historical-close semantics and no longer silently treat cost basis as the current price. Missing-price positions are marked with `price_available=false` and excluded from market value / unrealized PnL totals.
 
 ## Agent Tool Data Cache And Persistence
 

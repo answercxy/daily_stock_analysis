@@ -2490,7 +2490,8 @@ class StockAnalysisPipeline:
     ) -> Optional[str]:
         """Load locally persisted intelligence as fail-open evidence context."""
         try:
-            service = IntelligenceService()
+            service = IntelligenceService(config=self.config)
+            service.refresh_auto_sources()
             days = max(1, int(self.config.get_effective_news_window_days() or 1))
             collected: list[Dict[str, Any]] = []
             seen_urls: set[str] = set()
@@ -3351,9 +3352,18 @@ class StockAnalysisPipeline:
                     if channel == NotificationChannel.WECHAT:
                         continue
                     if channel == NotificationChannel.FEISHU:
+                        def _send_feishu_report() -> bool:
+                            if getattr(self.notifier, "_feishu_send_as_file", False):
+                                date_str = datetime.now().strftime('%Y%m%d')
+                                filepath = self.notifier.save_report_to_file(
+                                    report, filename=f"dashboard_{date_str}.md"
+                                )
+                                return self.notifier.send_feishu_file(filepath)
+                            return self.notifier.send_to_feishu(report)
+
                         channel_success, channel_error = _send_channel_safely(
                             channel.value,
-                            lambda: self.notifier.send_to_feishu(report),
+                            _send_feishu_report,
                         )
                         non_wechat_success = channel_success or non_wechat_success
                         _record_channel_result(
