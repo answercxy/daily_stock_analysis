@@ -3201,6 +3201,7 @@ class StockAnalysisPipeline:
             )
         
         results: List[AnalysisResult] = []
+        failed_results: List[AnalysisResult] = []  # Issue: 分析失败结果收集，用于报告缺失说明
         
         # 使用线程池并发处理
         # 注意：max_workers 设置较低（默认3）以避免触发反爬
@@ -3233,6 +3234,8 @@ class StockAnalysisPipeline:
                                 fallback_code=code,
                             )
                     elif result and not result.success:
+                        # 分析失败：收集起来，报告里说明缺失原因（不再静默丢弃）
+                        failed_results.append(result)
                         logger.warning(
                             f"[{code}] 分析结果标记为失败，不计入汇总: "
                             f"{result.error_message or '未知原因'}"
@@ -3276,20 +3279,20 @@ class StockAnalysisPipeline:
         
         # 保存报告到本地文件（无论是否推送通知都保存）
         if results and not dry_run:
-            self._save_local_report(results, report_type)
+            self._save_local_report(results, report_type, failed_results=failed_results)
 
         # 发送通知（单股推送模式下跳过汇总推送，避免重复）
         if results and send_notification and not dry_run:
             if single_stock_notify:
                 # 单股推送模式：只保存汇总报告，不再重复推送
                 logger.info("单股推送模式：跳过汇总推送，仅保存报告到本地")
-                self._send_notifications(results, report_type, skip_push=True)
+                self._send_notifications(results, report_type, skip_push=True, failed_results=failed_results)
             elif merge_notification:
                 # 合并模式（Issue #190）：仅保存，不推送，由 main 层合并个股+大盘后统一发送
                 logger.info("合并推送模式：跳过本次推送，将在个股+大盘复盘后统一发送")
-                self._send_notifications(results, report_type, skip_push=True)
+                self._send_notifications(results, report_type, skip_push=True, failed_results=failed_results)
             else:
-                self._send_notifications(results, report_type)
+                self._send_notifications(results, report_type, failed_results=failed_results)
         
         return results
 
@@ -3404,13 +3407,14 @@ class StockAnalysisPipeline:
         self,
         results: List[AnalysisResult],
         report_type: ReportType = ReportType.SIMPLE,
+        failed_results: Optional[List[AnalysisResult]] = None,
     ) -> Optional[str]:
         """保存分析报告到本地文件（与通知推送解耦）"""
         self._last_local_report_path = None
         self._last_local_report_error = None
         report: Optional[str] = None
         try:
-            report = self._generate_aggregate_report(results, report_type)
+            report = self._generate_aggregate_report(results, report_type, failed_results=failed_results)
         except Exception as e:
             self._last_local_report_error = str(e)
             logger.error("生成本地报告内容失败: %s", e)
@@ -3476,6 +3480,7 @@ class StockAnalysisPipeline:
         results: List[AnalysisResult],
         report_type: ReportType = ReportType.SIMPLE,
         skip_push: bool = False,
+        failed_results: Optional[List[AnalysisResult]] = None,
     ) -> None:
         """
         发送分析结果通知
@@ -3485,12 +3490,13 @@ class StockAnalysisPipeline:
         Args:
             results: 分析结果列表
             skip_push: 是否跳过推送（仅保存到本地，用于单股推送模式）
+            failed_results: 分析失败的股票结果（用于在报告中说明缺失原因）
         """
         noise_decision = None
         noise_finalized = False
         try:
             logger.info("生成决策仪表盘日报...")
-            report = self._generate_aggregate_report(results, report_type)
+            report = self._generate_aggregate_report(results, report_type, failed_results=failed_results)
             
             # 跳过推送（单股推送模式 / 合并模式：报告已由 _save_local_report 保存）
             if skip_push:
@@ -4036,11 +4042,46 @@ class StockAnalysisPipeline:
         self,
         results: List[AnalysisResult],
         report_type: ReportType,
+        failed_results: Optional[List[AnalysisResult]] = None,
     ) -> str:
         """Generate aggregate report with backward-compatible notifier fallback."""
+        report: str
         generator = getattr(self.notifier, "generate_aggregate_report", None)
         if callable(generator):
-            return generator(results, report_type)
-        if report_type == ReportType.BRIEF and hasattr(self.notifier, "generate_brief_report"):
-            return self.notifier.generate_brief_report(results)
-        return self.notifier.generate_dashboard_report(results)
+            report = str(generator(results, report_type))
+        elif report_type == ReportType.BRIEF and hasattr(self.notifier, "generate_brief_report"):
+            report = str(self.notifier.generate_brief_report(results))
+        else:
+            report = str(self.notifier.generate_dashboard_report(results))
+        if failed_results:
+            report = self._append_failed_stocks_note(report, failed_results)
+        return report
+
+    @staticmethod
+    def _append_failed_stocks_note(
+        report: str,
+        failed_results: List[AnalysisResult],
+    ) -> str:
+        """在报告末尾追加本次分析缺失/失败股票的说明（不再静默丢股）"""
+        if not failed_results:
+            return report
+        lines = [
+            "",
+            "---",
+            "",
+            "## ⚠️ 本次分析缺失说明",
+            "",
+            f"本次共计划分析股票，其中 **{len(failed_results)}** 只分析失败/缺失，未纳入以上汇总：",
+            "",
+        ]
+        for r in failed_results:
+            name = getattr(r, "name", "") or ""
+            code = getattr(r, "code", "") or ""
+            err = getattr(r, "error_message", None) or "未知原因"
+            lines.append(f"- **{name} ({code})**：{err}")
+        lines.extend([
+            "",
+            "> 缺失原因通常为：AI 模型返回格式异常、数据源获取失败或解析失败。",
+            "> 该股票本次未给出决策建议，请谨慎参考其他信息源，或稍后重试分析。",
+        ])
+        return report + "\n".join(lines)

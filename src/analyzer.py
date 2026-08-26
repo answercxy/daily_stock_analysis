@@ -4380,28 +4380,49 @@ class GeminiAnalyzer:
             flags=re.DOTALL,
         )
         fenced_matches = list(fence_pattern.finditer(text))
-        if len(fenced_matches) > 1:
-            raise ValueError("ambiguous_json")
-        if len(fenced_matches) == 1:
-            match = fenced_matches[0]
-            outside = (text[:match.start()] + text[match.end():]).strip()
-            if outside:
-                raise ValueError("ambiguous_json")
-            fence_lang = (match.group("lang") or "").strip().lower()
+
+        # 收集所有合法 fenced JSON 候选（lang 为空或 json）
+        fenced_candidates = []
+        for m in fenced_matches:
+            fence_lang = (m.group("lang") or "").strip().lower()
             if fence_lang not in {"", "json"}:
-                raise ValueError("ambiguous_json")
-            json_str = match.group("body").strip()
-            data = self._load_analysis_json_candidate(json_str)
-            return json_str, data
+                continue
+            fenced_candidates.append(m.group("body").strip())
+
+        if fenced_candidates:
+            # 唯一 fenced 候选且代码块外无杂质：直接采用（历史快速路径）
+            if (
+                len(fenced_candidates) == 1
+                and len(fenced_matches) == 1
+            ):
+                match = fenced_matches[0]
+                outside = (text[:match.start()] + text[match.end():]).strip()
+                if not outside:
+                    json_str = fenced_candidates[0]
+                    data = self._load_analysis_json_candidate(json_str)
+                    return json_str, data
+            # 多个 fenced 候选（或代码块外有内容）：逐个尝试，择优取第一个能解析的
+            for json_str in fenced_candidates:
+                try:
+                    data = self._load_analysis_json_candidate(json_str)
+                except Exception:
+                    continue
+                return json_str, data
+            raise ValueError("ambiguous_json")
         if "```" in text:
             raise ValueError("ambiguous_json")
 
         try:
             data = self._load_analysis_json_candidate(stripped)
         except json.JSONDecodeError as exc:
-            if self._contains_embedded_json_object(text):
-                raise ValueError("ambiguous_json") from exc
-            raise
+            # 整体解析失败：尝试从文本中逐个提取嵌入 JSON 对象，择优
+            for json_str, _obj in self._iter_embedded_json_candidates(text):
+                try:
+                    data = self._load_analysis_json_candidate(json_str)
+                except Exception:
+                    continue
+                return json_str, data
+            raise ValueError("ambiguous_json") from exc
         return stripped, data
 
     def _load_analysis_json_candidate(self, json_str: str) -> Dict[str, Any]:
@@ -4442,6 +4463,25 @@ class GeminiAnalyzer:
             if count > 1 or before or after:
                 return True
         return False
+
+    @staticmethod
+    def _iter_embedded_json_candidates(text: str):
+        """Yield (json_str, obj) for each embedded JSON object found in text."""
+        decoder = json.JSONDecoder()
+        seen = set()
+        for index, char in enumerate(text):
+            if char != "{":
+                continue
+            try:
+                obj, end = decoder.raw_decode(text[index:])
+            except json.JSONDecodeError:
+                continue
+            json_str = text[index:index + end]
+            marker = json_str[:200]
+            if marker in seen:
+                continue
+            seen.add(marker)
+            yield json_str, obj
 
     def _validate_analysis_minimal_contract(self, data: Dict[str, Any]) -> None:
         try:
